@@ -1,1 +1,4 @@
 naksha/
+/bin/
+*.exe
+.DS_Store
