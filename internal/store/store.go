@@ -168,6 +168,55 @@ func (s *Store) MarkFailed(ctx context.Context, id int64, cause string) error {
 	return nil
 }
 
+// ClaimSingleQuery is functionally identical to Claim, but does the whole
+// select-and-update in one statement via a CTE, instead of an explicit
+// BEGIN/SELECT/UPDATE/COMMIT. One network round trip instead of several.
+//
+// Why this is still atomic without an explicit transaction: a single SQL
+// statement in Postgres is ALWAYS atomic on its own — every statement runs
+// inside an implicit transaction if you don't start one explicitly. The CTE
+// (`next_job`) and the UPDATE that consumes it execute as one indivisible
+// unit, so there's no window between "find the row" and "lock it" for
+// another connection to interleave, same guarantee as the multi-statement
+// version.
+//
+// Trade-off versus Claim: this version is harder to read for someone
+// learning the mechanism for the first time (the locking and the update are
+// visually tangled together), which is why the explicit-transaction version
+// stays as the primary implementation. This one is here to prove the
+// equivalence and as the "how would you make this faster" answer.
+func (s *Store) ClaimSingleQuery(ctx context.Context, workerID string) (*Job, error) {
+	const q = `
+		WITH next_job AS (
+			SELECT id FROM jobs
+			WHERE status = 'pending'
+			ORDER BY created_at
+			FOR UPDATE SKIP LOCKED
+			LIMIT 1
+		)
+		UPDATE jobs
+		SET status = 'running',
+		    attempts = attempts + 1,
+		    locked_by = $1,
+		    locked_at = now(),
+		    updated_at = now()
+		FROM next_job
+		WHERE jobs.id = next_job.id
+		RETURNING jobs.id, jobs.queue, jobs.payload, jobs.status, jobs.attempts,
+		          jobs.max_attempts, jobs.locked_by, jobs.locked_at, jobs.last_error,
+		          jobs.created_at, jobs.updated_at
+	`
+	row := s.db.QueryRowContext(ctx, q, workerID)
+	job, err := scanJob(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNoJob
+		}
+		return nil, err
+	}
+	return job, nil
+}
+
 // row is satisfied by both *sql.Row and *sql.Row from a transaction —
 // lets scanJob be shared between Enqueue (plain db) and Claim (tx).
 type row interface {
