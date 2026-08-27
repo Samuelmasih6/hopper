@@ -217,6 +217,25 @@ func (s *Store) ClaimSingleQuery(ctx context.Context, workerID string) (*Job, er
 	return job, nil
 }
 
+// Get fetches a single job by ID — used by the status-check API endpoint.
+// Unlike Claim, this never locks or mutates anything; it's a plain read.
+func (s *Store) Get(ctx context.Context, id int64) (*Job, error) {
+	const q = `
+		SELECT id, queue, payload, status, attempts, max_attempts,
+		       locked_by, locked_at, last_error, created_at, updated_at
+		FROM jobs WHERE id = $1
+	`
+	row := s.db.QueryRowContext(ctx, q, id)
+	job, err := scanJob(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNoJob
+		}
+		return nil, err
+	}
+	return job, nil
+}
+
 // row is satisfied by both *sql.Row and *sql.Row from a transaction —
 // lets scanJob be shared between Enqueue (plain db) and Claim (tx).
 type row interface {
