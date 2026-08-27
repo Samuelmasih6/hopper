@@ -76,6 +76,54 @@ func TestClaimReturnsErrNoJobWhenEmpty(t *testing.T) {
 	}
 }
 
+// TestConcurrentClaimsNeverDuplicate_SingleQuery proves ClaimSingleQuery
+// has the same correctness guarantee as Claim, under the same concurrent
+// load — this is the actual evidence for "the CTE rewrite is equivalent,"
+// not just an argument from reading the SQL.
+func TestConcurrentClaimsNeverDuplicate_SingleQuery(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+
+	const n = 20
+	for i := 0; i < n; i++ {
+		payload, _ := json.Marshal(map[string]int{"i": i})
+		if _, err := s.Enqueue(ctx, "default", payload); err != nil {
+			t.Fatalf("enqueue %d: %v", i, err)
+		}
+	}
+
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		claimed = make(map[int64]int)
+	)
+
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(workerNum int) {
+			defer wg.Done()
+			job, err := s.ClaimSingleQuery(ctx, fmt.Sprintf("worker-%d", workerNum))
+			if err != nil {
+				t.Errorf("worker %d: claim: %v", workerNum, err)
+				return
+			}
+			mu.Lock()
+			claimed[job.ID]++
+			mu.Unlock()
+		}(i)
+	}
+	wg.Wait()
+
+	if len(claimed) != n {
+		t.Fatalf("expected %d distinct jobs claimed, got %d", n, len(claimed))
+	}
+	for id, count := range claimed {
+		if count != 1 {
+			t.Errorf("job %d was claimed %d times", id, count)
+		}
+	}
+}
+
 // TestConcurrentClaimsNeverDuplicate is the important one. It enqueues N
 // jobs, then fires N goroutines at Claim() simultaneously — if SKIP LOCKED
 // weren't doing its job, we'd expect to see the same job ID handed to more
