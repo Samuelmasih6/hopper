@@ -25,6 +25,7 @@ var ErrNoJob = errors.New("store: no job available")
 type Job struct {
 	ID          int64
 	Queue       string
+	Type        string
 	Payload     json.RawMessage
 	Status      string
 	Attempts    int
@@ -62,14 +63,16 @@ func (s *Store) Close() error {
 }
 
 // Enqueue inserts a new pending job and returns it with its assigned ID.
-func (s *Store) Enqueue(ctx context.Context, queue string, payload json.RawMessage) (*Job, error) {
+// jobType is required — it's how a worker later decides which handler
+// function should run this job (see internal/worker.Engine.Register).
+func (s *Store) Enqueue(ctx context.Context, queue, jobType string, payload json.RawMessage) (*Job, error) {
 	const q = `
-		INSERT INTO jobs (queue, payload)
-		VALUES ($1, $2)
-		RETURNING id, queue, payload, status, attempts, max_attempts,
+		INSERT INTO jobs (queue, type, payload)
+		VALUES ($1, $2, $3)
+		RETURNING id, queue, type, payload, status, attempts, max_attempts,
 		          locked_by, locked_at, last_error, created_at, updated_at
 	`
-	row := s.db.QueryRowContext(ctx, q, queue, payload)
+	row := s.db.QueryRowContext(ctx, q, queue, jobType, payload)
 	return scanJob(row)
 }
 
@@ -124,7 +127,7 @@ func (s *Store) Claim(ctx context.Context, workerID string) (*Job, error) {
 		    locked_at = now(),
 		    updated_at = now()
 		WHERE id = $2
-		RETURNING id, queue, payload, status, attempts, max_attempts,
+		RETURNING id, queue, type, payload, status, attempts, max_attempts,
 		          locked_by, locked_at, last_error, created_at, updated_at
 	`
 	row := tx.QueryRowContext(ctx, updateQ, workerID, id)
@@ -202,7 +205,7 @@ func (s *Store) ClaimSingleQuery(ctx context.Context, workerID string) (*Job, er
 		    updated_at = now()
 		FROM next_job
 		WHERE jobs.id = next_job.id
-		RETURNING jobs.id, jobs.queue, jobs.payload, jobs.status, jobs.attempts,
+		RETURNING jobs.id, jobs.queue, jobs.type, jobs.payload, jobs.status, jobs.attempts,
 		          jobs.max_attempts, jobs.locked_by, jobs.locked_at, jobs.last_error,
 		          jobs.created_at, jobs.updated_at
 	`
@@ -221,7 +224,7 @@ func (s *Store) ClaimSingleQuery(ctx context.Context, workerID string) (*Job, er
 // Unlike Claim, this never locks or mutates anything; it's a plain read.
 func (s *Store) Get(ctx context.Context, id int64) (*Job, error) {
 	const q = `
-		SELECT id, queue, payload, status, attempts, max_attempts,
+		SELECT id, queue, type, payload, status, attempts, max_attempts,
 		       locked_by, locked_at, last_error, created_at, updated_at
 		FROM jobs WHERE id = $1
 	`
@@ -245,7 +248,7 @@ type row interface {
 func scanJob(r row) (*Job, error) {
 	var j Job
 	err := r.Scan(
-		&j.ID, &j.Queue, &j.Payload, &j.Status, &j.Attempts, &j.MaxAttempts,
+		&j.ID, &j.Queue, &j.Type, &j.Payload, &j.Status, &j.Attempts, &j.MaxAttempts,
 		&j.LockedBy, &j.LockedAt, &j.LastError, &j.CreatedAt, &j.UpdatedAt,
 	)
 	if err != nil {
