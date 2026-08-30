@@ -17,7 +17,7 @@ func BenchmarkClaim(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		payload, _ := json.Marshal(map[string]int{"i": i})
-		s.Enqueue(ctx, "bench", payload)
+		s.Enqueue(ctx, "bench", "bench_job", payload)
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -36,7 +36,7 @@ func BenchmarkClaimSingleQuery(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		payload, _ := json.Marshal(map[string]int{"i": i})
-		s.Enqueue(ctx, "bench", payload)
+		s.Enqueue(ctx, "bench", "bench_job", payload)
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
