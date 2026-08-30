@@ -44,7 +44,7 @@ func TestEngineProcessesJobsEndToEnd(t *testing.T) {
 	var ids []int64
 	for i := 0; i < n; i++ {
 		payload, _ := json.Marshal(map[string]int{"i": i})
-		job, err := s.Enqueue(ctx, "default", payload)
+		job, err := s.Enqueue(ctx, "default", "process_item", payload)
 		if err != nil {
 			t.Fatalf("enqueue: %v", err)
 		}
@@ -92,7 +92,7 @@ func TestEngineMarksFailedJobs(t *testing.T) {
 	})
 
 	payload, _ := json.Marshal(map[string]string{"task": "will_fail"})
-	job, err := s.Enqueue(ctx, "flaky", payload)
+	job, err := s.Enqueue(ctx, "flaky", "flaky_task", payload)
 	if err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestEngineUnknownQueueMarksFailed(t *testing.T) {
 	reg := NewRegistry() // nothing registered
 
 	payload, _ := json.Marshal(map[string]string{"task": "orphan"})
-	job, err := s.Enqueue(ctx, "nobody_listens_here", payload)
+	job, err := s.Enqueue(ctx, "nobody_listens_here", "orphan_task", payload)
 	if err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
