@@ -32,7 +32,7 @@ func TestEnqueueAndClaim(t *testing.T) {
 	ctx := context.Background()
 
 	payload, _ := json.Marshal(map[string]string{"task": "send_email"})
-	job, err := s.Enqueue(ctx, "default", payload)
+	job, err := s.Enqueue(ctx, "default", "send_email", payload)
 	if err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestConcurrentClaimsNeverDuplicate_SingleQuery(t *testing.T) {
 	const n = 20
 	for i := 0; i < n; i++ {
 		payload, _ := json.Marshal(map[string]int{"i": i})
-		if _, err := s.Enqueue(ctx, "default", payload); err != nil {
+		if _, err := s.Enqueue(ctx, "default", "test_job", payload); err != nil {
 			t.Fatalf("enqueue %d: %v", i, err)
 		}
 	}
@@ -137,7 +137,7 @@ func TestConcurrentClaimsNeverDuplicate(t *testing.T) {
 	seeded := make(map[int64]bool)
 	for i := 0; i < n; i++ {
 		payload, _ := json.Marshal(map[string]int{"i": i})
-		job, err := s.Enqueue(ctx, "default", payload)
+		job, err := s.Enqueue(ctx, "default", "test_job", payload)
 		if err != nil {
 			t.Fatalf("enqueue %d: %v", i, err)
 		}
